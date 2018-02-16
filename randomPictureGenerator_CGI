@@ -1,0 +1,37 @@
+#!/usr/bin/python
+
+import cgi
+import random
+import cgitb
+cgitb.enable()
+
+images=[ "\"https://kids.nationalgeographic.com/content/dam/kids/photos/animals/Mammals/Q-Z/photoak-threetoedsloth.ngsversion.1465391618565.png\" height=300 width=500",
+         "https://i.ytimg.com/vi/aaqzPMOd_1g/maxresdefault.jpg height=300 width=500",
+         "https://kids.nationalgeographic.com/content/dam/kids/photos/animals/Mammals/Q-Z/sloth-beach-upside-down.ngsversion.1396530757113.adapt.1900.1.jpg height=300 width=450",
+         "https://s-i.huffpost.com/gen/1067635/images/o-BABY-SLOTH-HANGING-OUT-facebook.jpg height=500 width=375",
+         "http://www.morethancake.org/wp-content/uploads/2012/05/mysloth_baby.jpg height=350 width=450",
+         "https://www.tulemarresort.com/wp-content/uploads/2016/07/tulemar-july8.jpg height=450 width=500",
+         "http://www.zooborns.com/.a/6a010535647bf3970b0192aa1c86c1970d-800wi height= 450, width=400",
+         "https://pbs.twimg.com/media/B9BmyPMIMAA2nq9.jpg height=400, width=550",
+         "https://sharesloth.com/wp-content/uploads/2015/01/Sloth.jpg height=400, width=500",
+         "https://memegenerator.net/img/images/600x600/14861565/sloth-bday.jpg height=400, width=400"]
+
+index=random.randint(0, len(images)-1)
+
+picture = images[index]
+print "Content-type: text/html\n\n",
+
+print"""
+<head>
+      	<title> Random Sloth Generator </title>
+        </head>
+
+        <center>
+                <p><h3>Here's a random sloth picture.</h3></p>
+        <img src=%s><br>
+<form>
+      	<p><input type="submit" value="Generate Your Sloth"/></p>
+</form>
+</center>
+""" % (picture)
+
