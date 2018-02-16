@@ -1,0 +1,48 @@
+ANSWER TO "HOW DOES IT WORK?":
+
+The way this program works is that once the user enters a task, it will be stored on the server side in the database hw03 and in the table
+"things." If they click the check box, that task will be deleted from the table.  Once mySQL can select our database, it will run in our PHP file
+we created and give the user an option to request to add a task. The user will also have the option to delete that task. These two options will only
+work if we can connect to the database. If we cannot connect, then a message will display saying that if there isn't a table in the database, nothing
+will be seen. If there is a table, it will show the records in the table that can be seen. If it can connect to the database but no database is available,
+it will tell you exactly that. Else if it cannot connect, it will display a message saying it cannot connect whatsoever. 
+
+At some point in our form in the PHP code (near the bottom), there could be multiple or 0 input tags based on what the user enters or deletes
+as a task.
+
+<?
+  $result = mysql_connect('silo.soic.indiana.edu:45070', 'rachel', 'h0la42');
+                          // host                port     username   password
+  if ($result) {
+    if (mysql_select_db("hw03")) { // database
+      echo "I can select the database";
+
+      if ($_REQUEST["add"]) { $query = "insert into things (task) values ('" . $_REQUEST["add"] . "')";
+                              echo "<hr>" . $query . "<hr>"; // debug purposes
+                            }
+      if ($_REQUEST["delete"]) { $query = "delete from things where id = " . $_REQUEST["delete"];
+                                 echo "<hr>" . $query . "<hr>"; // debug purposes
+                               }
+      $result = mysql_query($query);
+
+      $query = "select * from things order by id asc"; // table of interest
+      $result = mysql_query($query);
+      if (! $result) echo "I don't see anything in here. <p>";
+      else {
+	$num_cats = mysql_num_rows($result);
+        echo "There are " . $num_cats . " records I can see. <p>";
+        while ($row = mysql_fetch_row($result)) {
+          ?>
+<form><input type=checkbox name=delete onClick=submit() value=<?=$row[0]?>> (<?=$row[0]?>, <?=$row[1]?>)</form><p>
+        <?}
+      }
+    } else {
+      echo "I can connect but I can't select the database. <p>";
+    }
+  } else {
+    echo "I cannot connect. <p>";
+  }
+?>
+<form>
+Task: <input type=text name=add> <input type=submit value=Add>
+</form>
