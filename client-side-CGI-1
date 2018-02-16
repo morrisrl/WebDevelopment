@@ -1,0 +1,22 @@
+#!/usr/bin/python
+
+import cgi
+import cgitb
+cgitb.enable()
+
+print "Content-type: text/html\n\n",
+
+form = cgi.FieldStorage()
+
+if (form.has_key("count")):
+  count = form.getvalue("count")
+else:
+  count = -1
+
+print """
+  <form>
+    You have pushed the button %s times.<br>
+    <input type=hidden name=count value=%s>
+    <input type=submit name=action value=Proceed>
+  </form>
+""" % (int(count) + 1, int(count) + 1)
