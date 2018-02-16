@@ -1,0 +1,337 @@
+#!/usr/bin/perl
+
+use DBI; 
+use Digest::MD5 qw(md5_hex); 
+use CGI; 
+
+$WORDS     = '/usr/share/dict/linux.words'; 
+$TRIES     = 6; 
+$EXPIRE    = 60 * 60 * 24 * 30;     # allow 30 days before expiration 
+$DB        = "DBI:mysql:hangman:silo.soic.indiana.edu:45070";      # data source name (database) 
+$username  = "whatever";                # username
+$password  = "whoever";                # password
+$DBAUTH    = "$username:$password"; 
+$SECRET    = " ***( something secret, whatever )*** "; 
+$MAX_TRIES = 10; 
+$DB_TABLE  = "..."; 
+$ID_LENGTH = 8;                     # length of the session ID 
+
+$q = new CGI; 
+
+# Open the database --------------------------------------------------------
+$DBH = DBI->connect($DB, $username, $password, {PrintError => 0})
+  || die "Couldn't open database: ", $DBI::errstr; 
+
+# get the current session ID, or make one ----------------------------------
+my ($session_id, $note) = &get_session_id(); 
+
+# retrieve the state -------------------------------------------------------
+my $state = &get_state($session_id) unless $q->param('clear'); 
+
+# reinitialize if we need to -----------------------------------------------
+if (!$state || $q->param('restart')) { $state = &initialize($state) }
+
+# process the current guess, if any ----------------------------------------
+my ($message, $status) = &process_guess($q->param('guess') || '', $state); 
+
+# save the modified state --------------------------------------------------
+&save_state($state, $session_id); 
+
+# start the page -----------------------------------------------------------
+print $q->header, 
+      $q->start_html(-title => 'Database Sessions with URL Rewriting',
+                     -bgcolor => 'white'); 
+
+print $q->p($q->font({-color=>'red'}, $note)) if $note; 
+
+# draw the picture ---------------------------------------------------------
+&picture($state); 
+
+# draw the statistics ------------------------------------------------------
+&status($message, $state); 
+
+# prompt the user to restart or for his next guess -------------------------
+if ($status =~ /^(won|lost)$/) { # to restart 
+  &show_restart_form($state); 
+} else {                         # for his/her next game 
+  &show_guess_form($state);   
+}
+
+print $q->end_html; 
+
+$DBH->disconnect; 
+
+#------------(subroutines)--------------------------------------------------
+
+# get the state from the database ------------------------------get_state---
+sub get_state {
+
+  my $id = shift;  
+
+  my $query = 
+      "SELECT * FROM $DB_TABLE WHERE session_id = '$id' AND WORD LIKE '%'"; 
+
+  my $sth = $DBH->prepare($query) || die "Prepare: ", $DBH->errstr;
+
+  $sth->execute || die "Execute: ", $sth->errstr; 
+
+  my $state = $sth->fetchrow_hashref; 
+
+  $sth->finish; 
+
+  return $state; 
+
+}
+
+# called to initialize a whole new state object ---------------initialize---
+# or to create a new game 
+sub initialize { 
+
+  my $state = shift; 
+
+  $state = {} unless $state; 
+
+  $state->{WORD} = &pick_random_word(); 
+
+  $state->{GUESSES_LEFT} = $TRIES; 
+
+  $state->{GUESSED} = ''; 
+
+  $state->{GAMENO} += 1; 
+
+  $state->{WON}    += 0; 
+
+  $state->{TOTAL}  += 0; 
+
+  return $state; 
+}
+
+# called to process the user's guest -----------------------process_guess---
+sub process_guess { 
+  my ($guess, $state) = @_; 
+
+  # lose immediately if user has no more guesses left 
+  return ('', 'lost') unless $state->{GUESSES_LEFT} > 0; 
+
+  # create hash containing the letters guessed thus far
+  my %guessed = map { $_ => 1 } $state->{GUESSED} =~ /(.)/g; 
+
+  # create hash containing the letters in the original word 
+  my %letters = map { $_ => 1 } $state->{WORD} =~ /(.)/g; 
+
+  # return immediately if user has already guessed the word 
+  return ('', 'won') unless grep (!$guessed{$_}, keys %letters); 
+
+  # do nothing more (stop here) if no guess is provided 
+  return ('', 'continue') unless $guess; 
+
+  # this section processes individual letter guesses 
+  $guess = lc $guess; 
+  return ("Not a valid letter or word!", 'error') unless $guess =~ /^[a-z]+$/; 
+  return ("You already guessed that letter!", 'error') if ($guessed{$guess}); 
+
+  # this section is called when the user guesses the whole world 
+  if (length($guess) > 1 && $guess ne $state->{WORD}) {
+    $state->{TOTAL} += $state->{GUESSES_LEFT}; 
+    return (qq{You lose. The word was "$state->{WORD}."}, 'lost');  
+  }
+
+  # update the list of guesses 
+  foreach ($guess =~ /(.)/g) { $guessed{$_}++; }
+  $state->{GUESSED} = join('', sort keys %guessed); 
+
+  # correct guess -- word completely filled in
+  unless (grep(!$guessed{$_}, keys %letters)) {
+    $state->{WON}++; 
+    return (qq{You got it! The word was "$state->{WORD}."}, 'won'); 
+  }
+
+  # incorrect guess
+  if (! $letters{$guess}) { 
+    $state->{TOTAL}++; 
+    $state->{GUESSES_LEFT}--; 
+
+    # user runs out of turns 
+    return (qq{The jig is up. The word was "$state->{WORD}".}, 'lost') 
+      if $state->{GUESSES_LEFT} <= 0; 
+
+    return ('Wrong guess!', 'continue'); 
+  } 
+
+  # correct guess but word still incomplete 
+  return ('Good guess!', 'continue'); 
+}
+
+# create the cute hangman picture --------------------------------picture---
+sub picture { 
+  my $state = shift; 
+  my $tries_left = $state->{GUESSES_LEFT}; 
+  my $picture = sprintf("https://www.cs.indiana.edu/classes/a348-dger/sum2002/notes/h%d.gif", $TRIES - $tries_left); 
+
+  print $q->img( {-src=>$picture, 
+                  -align=>'LEFT',
+                  -alt=>"[$tries_left tries_left]"
+                 } 
+               ); 
+}
+
+# print the status ------------------------------------------------status---
+sub status { 
+  my ($message, $state) = @_; 
+  print qq {
+    <table width=100%> <tr> 
+           <td> <b> Word #: </b> $state->{GAMENO} ($state->{WORD}) </td>  
+           <td> <b> Guessed: </b> $state->{GUESSED} </td> 
+      </tr> <tr> 
+           <td> <b> Won: </b>  $state->{WON} </td> 
+           <td> <b> Current average: </b> },
+ 
+                    sprintf("%2.3f", $state->{TOTAL} / $state->{GAMENO}), 
+
+       qq{ </td> <td> <b> Overall average: </b> }, 
+
+            $state->{GAMENO} > 1 ? sprintf("%2.3f", 
+                                             ($state->{TOTAL} - 
+                                                ($TRIES - 
+                                                 $state->{GUESSES_LEFT}
+                                                )
+                                             ) / ($state->{GAMENO} - 1)
+                                          ) 
+                                   : '0.000', 
+
+       qq{ </td> 
+      </tr> 
+    </table> 
+  }; 
+
+  my %guessed = (); 
+  my @guessed = $state->{GUESSED} =~ /(.)/g; 
+  foreach $letter (@guessed) { 
+    $guessed{$letter} = 1; 
+  } # instead of my %guessed = map { $_ => 1 } $state->{GUESSED} =~ s/(.)/g; 
+
+  print $q->h2("Word:", 
+               map { $guessed{$_} ? $_ : '_' } 
+                   $state->{"WORD"} =~ /(.)/g
+  );
+  
+  print $q->h2($q->font({-color=>'red'}, $message)) if $message; 
+
+}
+
+# ask the user if (s)he wants to start over ------------show_restart_form---
+sub show_restart_form { 
+  my $state = shift;
+  print $q->start_form(), 
+        "Do you want to play again?",
+        $q->submit(-name=>'restart', 
+                   -value=>'Another game'), qq{     }, 
+        $q->checkbox(-name=>'clear', -label=>'Clear scores'); 
+
+  delete $state->{"WORD"}; 
+
+  # &save_state($state); 
+
+  print $q->end_form; 
+} 
+
+# print the fill-out form for requesting input -----------show_guess_form---
+sub show_guess_form { 
+
+  my $state = shift; 
+
+  print $q->start_form(), 
+        "Your guess: ", 
+        $q->textfield(-name=>'guess', 
+                      -value=>'', 
+                      -override=>1), 
+        $q->submit(value=>'Guess');
+
+  # &save_state($state); 
+
+  print $q->end_form; 
+}
+
+# pick a word, any word ---------------------------------pick_random_word---
+sub pick_random_word { 
+  open (AB, $WORDS); 
+  my @words = <AB>; 
+  close(AB); 
+  my $chosenWord = $words[int(rand($#words + 1))]; 
+  chop($chosenWord); 
+  return lc $chosenWord; 
+} 
+
+# save the state in the database ------------------------------save_state---
+sub save_state {
+  my ($state, $id) = @_; 
+  my $sth = $DBH->prepare(<<END) || die "prepare: ", $DBH->errstr;
+UPDATE $DB_TABLE
+  SET WORD=?,GUESSED=?,GAMENO=?,WON=?,TOTAL=?,GUESSES_LEFT=?
+  WHERE session_id='$id'
+END
+  $sth->execute(@{$state}{qw(WORD GUESSED GAMENO WON TOTAL GUESSES_LEFT)})
+    || die "execute: ", $DBH->errstr;
+  $sth->finish; 
+} 
+
+# retrieve the session ID from the path info. if it's -----get_session_id---
+# not already there, add it to the path info (more or less) with a redirect 
+sub get_session_id {
+
+  my (@result); 
+  &expire_old_sessions(); 
+  my ($id) = $q->path_info() =~ m:^/([a-h0-9]{$ID_LENGTH}):o;
+  return @result if $id and @result = &check_id($id); 
+  
+  # if we get here, there's not already an ID in the path info 
+  my $session_id = &generate_id(); 
+  die "Couldn't make a new session id" unless $session_id; 
+  print $q->redirect($q->script_name() . "/$session_id"); 
+  exit 0; 
+}
+
+# find a new unique ID and insert it into the database -------generate_id---
+sub generate_id {
+  # create a new session id 
+  my $tries = 0; 
+  my $id = &hash($SECRET . rand()); 
+
+  while ($tries++ < $MAX_TRIES) {
+    last if $DBH->do("INSERT INTO $DB_TABLE (session_id) VALUES ('$id')"); 
+    $id = &hash($id); 
+  }
+
+  return undef if $tries >= $MAX_TRIES; # we failed 
+  return $id; 
+}
+
+# check to see that an old ID is valid --------------------------check_id---
+sub check_id {
+
+  my $id = shift; 
+
+  return ($id, '') 
+
+    if $DBH->do("SELECT 1 FROM $DB_TABLE WHERE session_id = '$id'") > 0; 
+
+  return ($id, 'The record of your game may have expired. Restarting.')
+
+    if $DBH->do("INSERT INTO $DB_TABLE (session_id) VALUES ('$id')"); 
+
+  return (); 
+
+}
+
+# generate a hash value ---------------------------------------------hash---
+sub hash {
+  my $value = shift; 
+  return substr(md5_hex($value), 0, $ID_LENGTH); 
+}
+
+sub expire_old_sessions { # --------------------------expire_old_sessions---
+  $DBH->do(<<END); 
+DELETE FROM $DB_TABLE
+  WHERE (unix_timestamp() - unix_timestamp(modified)) > $EXPIRE
+END
+}
