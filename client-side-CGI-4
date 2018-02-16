@@ -1,0 +1,50 @@
+#!/usr/bin/python
+
+import cgi
+import cgitb
+cgitb.enable()
+
+print "Content-type: text/html\n\n"
+
+form = cgi.FieldStorage()
+
+if (form.has_key("counter")):
+ counter = form.getvalue("counter")
+else:
+ counter = -1
+
+if (form.has_key("total")):
+ total = form.getvalue("total")
+else:
+ total = -1
+
+if (form.has_key("more")):
+ more=form.getvalue("more")
+else:
+ more = 0
+
+if (form.has_key("action")):
+ action = form.getvalue("action")
+else:
+ action = "Up"
+
+if (action == "Up"):
+ total = int(total)+ int(more)
+ counter= int(counter)+ 1
+
+else:
+ counter = int(counter) + 1
+ total = int(total) - int(more)
+
+
+print """
+<b style="font-size:12px;">Stage Four: More complicated input</b>
+<form>
+      	<p>Welcome, you have clicked the button %s times. Balance is %s</p>
+        <input type="text" name="more" value=%s>
+        <input type="hidden" name="counter" value=%s>
+        <input type="hidden" name="total" value=%s>
+        <input type="submit" name="action" value="Up">
+        <input type="submit" name="action" value="Down">
+</form>
+""" % (counter, total, more, counter, total)
